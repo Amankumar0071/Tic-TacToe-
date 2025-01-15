@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tic Tac Toe</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: linear-gradient(to right, #ff7e5f, #feb47b);
+        }
+        .game-board {
+            display: grid;
+            grid-template-columns: repeat(3, 100px);
+            grid-gap: 5px;
+            margin-top: 20px;
+            display: none;
+        }
+        .cell {
+            width: 100px;
+            height: 100px;
+            font-size: 2rem;
+            font-weight: bold;
+            text-align: center;
+            line-height: 100px;
+            border: 2px solid #000;
+            cursor: pointer;
+            user-select: none;
+            background-color: #fff;
+        }
+        .cell.played {
+            pointer-events: none;
+        }
+        .info {
+            text-align: center;
+            margin: 10px 0;
+        }
+        .button {
+            padding: 15px 30px;
+            font-size: 18px;
+            font-weight: bold;
+            color: white;
+            background-color: #007bff;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        .button:hover {
+            background-color: #0056b3;
+        }
+        .instructions {
+            text-align: center;
+            margin: 20px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+    </style>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.17.1/firebase-ads.js"></script>
+    <script>
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "",
+            authDomain: "",
+            projectId: "",
+            storageBucket: "",
+            messagingSenderId: "",
+            appId: "ca-app-pub-9182457214631279~6350996404"
+        };
+        firebase.initializeApp(firebaseConfig);
+
+        // Ad Units
+        const BANNER_AD_UNIT_ID = "ca-app-pub-9182457214631279/7775930154";
+        const INTERSTITIAL_AD_UNIT_ID = "ca-app-pub-9182457214631279/5528771264";
+        const APP_OPEN_AD_UNIT_ID = "ca-app-pub-9182457214631279/3118230347";
+
+        // Initialize Banner Ad
+        function loadBannerAd() {
+            const bannerAd = firebase.ads().BannerAd.createForAdRequest(BANNER_AD_UNIT_ID);
+            bannerAd.on('adLoaded', () => console.log('Banner Ad Loaded'));
+            bannerAd.on('adFailedToLoad', (error) => console.error('Banner Ad Failed to Load:', error));
+            bannerAd.load();
+        }
+
+        // Initialize Interstitial Ad
+        function loadInterstitialAd() {
+            const interstitialAd = firebase.ads().InterstitialAd.createForAdRequest(INTERSTITIAL_AD_UNIT_ID);
+            interstitialAd.on('adLoaded', () => console.log('Interstitial Ad Loaded'));
+            interstitialAd.on('adFailedToLoad', (error) => console.error('Interstitial Ad Failed to Load:', error));
+            interstitialAd.load();
+            return interstitialAd;
+        }
+
+        // Initialize App Open Ad
+        function loadAppOpenAd() {
+            const appOpenAd = firebase.ads().AppOpenAd.createForAdRequest(APP_OPEN_AD_UNIT_ID);
+            appOpenAd.on('adLoaded', () => console.log('App Open Ad Loaded'));
+            appOpenAd.on('adFailedToLoad', (error) => console.error('App Open Ad Failed to Load:', error));
+            appOpenAd.load();
+            return appOpenAd;
+        }
+
+        // Request Consent Using UMP SDK
+        async function requestConsent() {
+            const ump = new UserMessagingPlatform();
+            try {
+                const consentInfo = await ump.requestConsentInfoUpdate();
+                if (consentInfo.isConsentRequired) {
+                    const form = await ump.loadConsentForm();
+                    await form.show();
+                }
+                console.log("Consent flow completed.");
+                loadBannerAd();
+            } catch (error) {
+                console.error("Error during consent flow:", error);
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", () => {
+            requestConsent();
+        });
+
+    </script>
+</head>
+<body>
+    <div id="instruction" class="instructions">
+        <h1>Welcome to Tic Tac Toe!</h1>
+        <p>Test your skills in this classic game. Take turns placing your mark on the grid.</p>
+        <p>The first player to align three marks in a row, column, or diagonal wins!</p>
+        <button class="button" id="startMatchBtn">Start Match</button>
+    </div>
+
+    <div class="info">
+        <h2>Timer: <span id="timer">0</span> seconds</h2>
+        <h3 id="status">Player X's Turn</h3>
+    </div>
+    <div class="game-board" id="board"></div>
+    <button class="button" id="restartBtn" style="display:none;">Restart</button>
+
+    <audio id="clickSound" src="https://www.soundjay.com/button/sounds/button-09.mp3"></audio>
+
+    <script>
+        const board = document.getElementById('board');
+        const statusText = document.getElementById('status');
+        const timerElement = document.getElementById('timer');
+        const restartBtn = document.getElementById('restartBtn');
+        const clickSound = document.getElementById('clickSound');
+        const instruction = document.getElementById('instruction');
+        const startMatchBtn = document.getElementById('startMatchBtn');
+
+        let currentPlayer = 'X';
+        let gameActive = false;
+        let startTime;
+
+        const cells = Array.from({ length: 9 }, (_, i) => {
+            const cell = document.createElement('div');
+            cell.classList.add('cell');
+            cell.addEventListener('click', () => handleCellClick(cell, i));
+            board.appendChild(cell);
+            return cell;
+        });
+
+        function handleCellClick(cell, index) {
+            if (!gameActive || cell.textContent) return;
+
+            cell.textContent = currentPlayer;
+            cell.classList.add('played');
+            clickSound.play();
+            changeBackgroundColor();
+
+            if (checkWinner()) {
+                gameActive = false;
+                statusText.textContent = `Player ${currentPlayer} Wins!`;
+                endGame();
+            } else if (cells.every(cell => cell.textContent)) {
+                gameActive = false;
+                statusText.textContent = 'It\'s a Draw!';
+                endGame();
+            } else {
+                currentPlayer = currentPlayer === 'X' ? 'O' : 'X';
+                statusText.textContent = `Player ${currentPlayer}'s Turn`;
+            }
+        }
+
+        function checkWinner() {
+            const winPatterns = [
+                [0, 1, 2], [3, 4, 5], [6, 7, 8],
+                [0, 3, 6], [1, 4, 7], [2, 5, 8],
+                [0, 4, 8], [2, 4, 6]
+            ];
+
+            return winPatterns.some(pattern =>
+                pattern.every(index => cells[index].textContent === currentPlayer)
+            );
+        }
+
+        function changeBackgroundColor() {
+            const color1 = `rgb(${Math.floor(Math.random() * 256)}, 
+                                ${Math.floor(Math.random() * 256)}, 
+                                ${Math.floor(Math.random() * 256)})`;
+            const color2 = `rgb(${Math.floor(Math.random() * 256)}, 
+                                ${Math.floor(Math.random() * 256)}, 
+                                ${Math.floor(Math.random() * 256)})`;
+            document.body.style.background = `linear-gradient(to right, ${color1}, ${color2})`;
+        }
+
+        function endGame() {
+            restartBtn.style.display = 'block';
+            clearInterval(timerInterval);
+        }
+
+        restartBtn.addEventListener('click', () => {
+            cells.forEach(cell => {
+                cell.textContent = '';
+                cell.classList.remove('played');
+            });
+            gameActive = true;
+            currentPlayer = 'X';
+            statusText.textContent = `Player X's Turn`;
+            restartBtn.style.display = 'none';
+            startTime = Date.now();
+            timerElement.textContent = '0';
+            startTimer();
+        });
+
+        function startTimer() {
+            timerInterval = setInterval(() => {
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                timerElement.textContent = elapsed;
+            }, 1000);
+        }
+
+        startMatchBtn.addEventListener('click', () => {
+            instruction.style.display = 'none';
+            board.style.display = 'grid';
+            restartBtn.style.display = 'none';
+            gameActive = true;
+            currentPlayer = 'X';
+            statusText.textContent = `Player X's Turn`;
+            startTime = Date.now();
+            startTimer();
+        });
+
+        let timerInterval;
+    </script>
+</body>
+</html>
